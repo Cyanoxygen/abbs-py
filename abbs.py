@@ -29,11 +29,12 @@ import sys
 import yaml
 import argparse
 import getpass
+import subprocess
 
 
 AUTHOR = 'Cyanoxygen <cyanoxygen@aosc.io>'
 VER = '0.0.1'
-
+REPOURL='https://github.com/aosc-dev/aosc-os-abbs.git'
 EXEC=sys.argv[0]
 
 sublist = []
@@ -52,10 +53,10 @@ class _conf:
 		Loads config file, if the conffile is empty, call askconf() to configure.
 		"""
 		# If such file does not exist we just "touch" it.
-		if conffile not in os.listdir(f'{os.environ["HOME"]}'):
+		if conffile.split('/')[-1] not in os.listdir(f'{os.environ["HOME"]}'):
 			open(conffile, 'w+').close()
 		self._file = open(conffile)
-		self._parsed = yaml.load(conffile, Loader=yaml.FullLoader)
+		self._parsed = yaml.full_load(self._file)
 		# if it detects nothing, then direct to setup procedure
 		if self._parsed == None:
 			self.askconf()
@@ -166,19 +167,68 @@ class RepoMan():
 	name = 'repo'
 	desc = "Manages the AOSC ABBS Repository."
 	def __init__(self):
-		self.path = conf.repopath
-		
+		self.repopath = conf.repopath
+
+	def init_repo(self, argv):
+		"""
+		{0} repo init: Initiliaze (clone) the ABBS repository.
+
+		Usage: 
+		{0} repo init
+
+		Repo path is configured in ~/.abbs.yml. If you want to use different path,
+		you have to manually modify it.
+
+		"""
+		pprint('Cloning AOSC ABBS Repository...')
+		try:
+			os.listdir(self.repopath)
+		except FileNotFoundError:
+			try:
+				os.makedirs(self.repopath)
+			except PermissionError as e:
+				pprint(f'Permission denied while creating directory: {e}. Failing.', 'ERROR')
+				sys.exit(1)
+		# Make sure the directory is empty
+		if '.git' in os.listdir(self.repopath):
+			pprint('Repository already exists. Failing.', 'ERROR')
+			sys.exit(1)
+
+		elif len(os.listdir(self.repopath)) > 0:
+			pprint('Target directory is not empty. Failing.', 'ERROR')
+			sys.exit(1)
+
+		try:
+			ret = subprocess.run(['git', 'clone', REPOURL, conf.repopath])
+		except Exception as e:
+			pprint(f'Repository initilization failed: {e}. Failing.', 'ERROR')
+			sys.exit(1)
+
+		if ret.returncode != 0:
+			pprint('Repository initilization failed. Failing.', 'ERROR')
+			try:
+				os.rmdir(self.repopath)
+			except:
+				# This should definitely except an error.
+				# in most cases git will remove the directory itself.
+				pass
+			finally:
+				sys.exit(1)
+
 	def dispatch(self, argv):
 		"""
 		Dispatch calls to different methods by provided arguments.
 		argv[0] is always the name of this subfunction, e.g. 'repo'.
 		argv is stripped version of sys.argv. 
 		"""
-		print(argv)
-		if len(argv) == 1:
+		dispatch_map = {
+			'init': self.init_repo
+		}
+		if len(argv) <= 1:
 			loaded['help'].print_subusage([None, self.name])
 			sys.exit(1)
-
+		elif argv[1] in dispatch_map.keys():
+			dispatch_map[argv[1]](argv[1:])
 		else:
 			print(f'TBD! your command of {self.name} is {argv[1]}.')
 			sys.exit(0)
@@ -211,7 +261,7 @@ class CielMan:
 		argv[0] is always the name of this subfunction, e.g. 'repo'.
 		argv is stripped version of sys.argv. 
 		"""
-		print(argv)
+		
 		if len(argv) == 1:
 			loaded['help'].print_subusage([None, self.name])
 			sys.exit(1)
@@ -248,7 +298,7 @@ class PkgMan():
 		argv[0] is always the name of this subfunction, e.g. 'repo'.
 		argv is stripped version of sys.argv. 
 		"""
-		print(argv)
+		
 		if len(argv) == 1:
 			loaded['help'].print_subusage([None, self.name])
 			sys.exit(1)
@@ -283,7 +333,7 @@ class SpecMan:
 		argv[0] is always the name of this subfunction, e.g. 'repo'.
 		argv is stripped version of sys.argv. 
 		"""
-		print(argv)
+		
 		if len(argv) == 1:
 			loaded['help'].print_subusage([None, self.name])
 			sys.exit(1)
@@ -325,7 +375,7 @@ class TopicMan:
 		argv[0] is always the name of this subfunction, e.g. 'repo'.
 		argv is stripped version of sys.argv. 
 		"""
-		print(argv)
+		
 		if len(argv) == 1:
 			loaded['help'].print_subusage([None, self.name])
 			sys.exit(1)
@@ -381,6 +431,17 @@ class Help:
 		else: 
 			self.print_subusage(argv)
 
+
+def pprint(msg, level='INFO'):
+	colors = {
+		'INFO': '\033[1;32m',
+		'ERROR': '\033[1;31m',
+		'WARN': '\033[1;33m'
+	}
+	normal = '\033[0m'
+	print(f'[{colors[level]}{level:>5s}{normal}] {msg}')
+
+
 def loadclass():
 	"""
 	Loads all classes defined in this file.
@@ -411,8 +472,6 @@ def main():
 	conf = _conf(f'{os.environ["HOME"]}/.abbs.yml')
 	# Call the respective dispatch method of subfunctions
 	loadclass()
-	print(f'Loaded names: {names}')
-	print(f'Loaded subfunctions: {loaded}')
 	# Like apt, we need at least one subfunction to work.
 	if len(sys.argv) == 1 or sys.argv[1] not in names:
 		# no args or the second arg is invalid
@@ -423,8 +482,10 @@ def main():
 	subcommand = sys.argv[1]
 	subargs = sys.argv[1:]
 	# Hand control to dispatcher of respective subfunctions(objects).
-	print(f'Subcommand is {subcommand}')
-	print(f'Dispatching to {loaded[subcommand]}...')
+	print(f'\nWelcome to abbs-py Version {VER}!')
+	print(f'Welcome, \033[1;36m{conf.fullname} <{conf.email}>\033[0m!')
+	print('=================================\n')
+
 	loaded[subcommand].dispatch(subargs)
 
 
