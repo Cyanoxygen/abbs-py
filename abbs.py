@@ -23,14 +23,16 @@ TODO list
 - Shortcuts for lazy ones like me.
 - Exit points should be clear. exit() should not present in class methods(my thought).
 """
-import os 
+
+# Okay, these identations from triple-quoted string is annoying
+from textwrap import dedent
+import getpass
+import os
 import re
+import shutil
+import subprocess
 import sys
 import yaml
-import argparse
-import getpass
-import subprocess
-
 
 AUTHOR = 'Cyanoxygen <cyanoxygen@aosc.io>'
 VER = '0.0.1'
@@ -146,6 +148,7 @@ class _conf:
 		finally:
 			self._file.close()
 
+conf = _conf
 
 class RepoMan():
 	"""
@@ -154,14 +157,14 @@ class RepoMan():
 		{0} repo <command> [options] [arguments]
 
 	Commands:
-	init		Initiliaze AOSC ABBS repository to the configured path.
-	update		Update the ABBS repository.
-	push		Push your commits to the ABBS repository.
-	status		Show currnet status of ABBS repository.
+		init		Initiliaze AOSC ABBS repository to the configured path.
+		update		Update the ABBS repository.
+		push		Push your commits to the ABBS repository.
+		status		Show currnet status of ABBS repository.
 	
 	Options:
-	-f, --force	Force push.
-	-r, --reinit	Remove repo directory and reinitiliaze it.
+		-f, --force	Force push.
+		-r, --reinit	Remove repo directory and reinitiliaze it.
 	
 	"""
 	name = 'repo'
@@ -174,12 +177,19 @@ class RepoMan():
 		{0} repo init: Initiliaze (clone) the ABBS repository.
 
 		Usage: 
-		{0} repo init
+		{0} repo init [--reinit]
+
+		Options:
+			--reinit 	Reinitiliaze repo (removes repo directory)
 
 		Repo path is configured in ~/.abbs.yml. If you want to use different path,
 		you have to manually modify it.
 
 		"""
+		if 'help' in argv or '--help' in argv:
+			print(dedent(self.init_repo.__doc__.format(EXEC)))
+			sys.exit(0)
+
 		pprint('Cloning AOSC ABBS Repository...')
 		try:
 			os.listdir(self.repopath)
@@ -191,8 +201,16 @@ class RepoMan():
 				sys.exit(1)
 		# Make sure the directory is empty
 		if '.git' in os.listdir(self.repopath):
-			pprint('Repository already exists. Failing.', 'ERROR')
-			sys.exit(1)
+			if '--reinit' in argv:
+				pprint('`--reinit\' specified, removing and recloning...', 'WARN')
+				try:
+					shutil.rmtree(self.repopath, ignore_errors=True)
+				except Exception as e:
+					pprint(f'Unable to remove repository directory: {e}. Failing.', 'ERROR')
+					sys.exit(1)
+			else:
+				pprint('Repository already exists. Failing.', 'ERROR')
+				sys.exit(1)
 
 		elif len(os.listdir(self.repopath)) > 0:
 			pprint('Target directory is not empty. Failing.', 'ERROR')
@@ -202,6 +220,10 @@ class RepoMan():
 			ret = subprocess.run(['git', 'clone', REPOURL, conf.repopath])
 		except Exception as e:
 			pprint(f'Repository initilization failed: {e}. Failing.', 'ERROR')
+			sys.exit(1)
+
+		except KeyboardInterrupt:
+			pprint(f'Oh, I was forced to to quit.', 'ERROR')
 			sys.exit(1)
 
 		if ret.returncode != 0:
@@ -214,6 +236,8 @@ class RepoMan():
 				pass
 			finally:
 				sys.exit(1)
+
+		pprint(f'Success! Repository initiliazed at {self.repopath}', 'DONE')
 
 	def dispatch(self, argv):
 		"""
@@ -243,11 +267,11 @@ class CielMan:
 		{0} ciel <command> [options...]
 
 	Commands:
-	init		Initiliaze a Ciel workspace.
-	list		List Ciel instances.
-	update		Update operating system in a instance.
-	rollback	Roll back state of a Ciel instance.
-	shell		Execute a shell from a Ciel instance.
+		init		Initiliaze a Ciel workspace.
+		list		List Ciel instances.
+		update		Update operating system in a instance.
+		rollback	Roll back state of a Ciel instance.
+		shell		Execute a shell from a Ciel instance.
 	"""
 	name = 'ciel'
 	desc = "Manages local Ciel instances."
@@ -278,14 +302,14 @@ class PkgMan():
 	Usage: {0} pkg <command> [options...] [arguments...]
 
 	Commands:
-	add		Add a package into pending list.
-	build 		Build all packages from pending list.
-	clear		Clear pending list.
-	remove		Remove a package from built packages.
-	remove-pending	Remove a pending package from pending list.
-	list		List built packages.
-	list-pending	List pending-build packages.
-	push		Push built packages to the official repository.
+		add		Add a package into pending list.
+		build 		Build all packages from pending list.
+		clear		Clear pending list.
+		remove		Remove a package from built packages.
+		remove-pending	Remove a pending package from pending list.
+		list		List built packages.
+		list-pending	List pending-build packages.
+		push		Push built packages to the official repository.
 	"""
 	name = 'pkg'
 	desc = "Manages locally built packages."
@@ -316,10 +340,10 @@ class SpecMan:
 		{0} spec <command> [options...] [arguments...]
 
 	Commands:
-	add		Add a new package
-	edit 		Open a editor with the given package folder.
-	check		Lint spec files
-	ls 		Show all files in a package spec folder
+		add		Add a new package
+		edit 		Open a editor with the given package folder.
+		check		Lint spec files
+		ls 		Show all files in a package spec folder
 
 	"""
 	name = 'spec'
@@ -350,12 +374,12 @@ class TopicMan:
 		{0} topic <command> [options] [arguments]
 
 	Commands:
-	select		Select a topic
-	status		Show status of current topic
-	list		List all topics
-	close		Merge topics to the stable branch
-	new		Create a topic
-	edit		Edit a topic
+		select		Select a topic
+		status		Show status of current topic
+		list		List all topics
+		close		Merge topics to the stable branch
+		new		Create a topic
+		edit		Edit a topic
 	
 	"""
 
@@ -423,7 +447,7 @@ class Help:
 			print(f'Subcommand {name} not found.')
 			return 1
 		else:
-			print(self.helps[name].format(EXEC))
+			print(dedent(self.helps[name].format(EXEC)))
 
 	def dispatch(self, argv):
 		if len(argv) == 1:
@@ -434,12 +458,13 @@ class Help:
 
 def pprint(msg, level='INFO'):
 	colors = {
-		'INFO': '\033[1;32m',
+		'INFO': '\033[1;36m',
 		'ERROR': '\033[1;31m',
-		'WARN': '\033[1;33m'
+		'WARN': '\033[1;33m',
+		'DONE': '\033[1;32m'
 	}
 	normal = '\033[0m'
-	print(f'[{colors[level]}{level:>5s}{normal}] {msg}')
+	print(f'\r[{colors[level]}{level:>5s}{normal}] {msg}')
 
 
 def loadclass():
