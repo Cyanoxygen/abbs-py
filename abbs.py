@@ -22,6 +22,7 @@ Subcommands:
 TODO list
 - Shortcuts for lazy ones like me.
 - Exit points should be clear. exit() should not present in class methods(my thought).
+- In the future we should use PythonGit instead of parsing output of command-line Git.
 """
 
 # Okay, these identations from triple-quoted string is annoying
@@ -160,11 +161,14 @@ class RepoMan():
 		init		Initiliaze AOSC ABBS repository to the configured path.
 		update		Update the ABBS repository.
 		push		Push your commits to the ABBS repository.
+		reset		Discard all local changes
 		status		Show currnet status of ABBS repository.
 	
 	Options:
-		-f, --force	Force push.
-		-r, --reinit	Remove repo directory and reinitiliaze it.
+		--force		Force push.
+		--reinit	Remove repo directory and reinitiliaze it.
+		--no-review	Just push, no previewm and no confirmation
+		--yes		Just reset, no need to ask
 	
 	"""
 	name = 'repo'
@@ -236,8 +240,102 @@ class RepoMan():
 				pass
 			finally:
 				sys.exit(1)
-
+		# Once clone is complete, we need to set up git user settings.
+		# That is, pretty simple. right?
+		subprocess.run(['git', 'config', 'user.name', conf.gitname], cwd=self.repopath)
+		subprocess.run(['git', 'config', 'user.email', conf.email], cwd=self.repopath)
 		pprint(f'Success! Repository initiliazed at {self.repopath}', 'DONE')
+
+	def update_repo(self, argv):
+		'''
+		{0} repo update: fetch latest updated from upstream
+
+		Usage: 
+		{0} repo update
+
+		'''
+		# First we need to detect if the repository exists
+		if 'help' in argv or '--help' in argv:
+			print(dedent(self.init_repo.__doc__.format(EXEC)))
+			sys.exit(0)
+
+		pprint('Updating AOSC ABBS Repository...')
+		try:
+			os.listdir(f'{self.repopath}/.git')
+		except FileNotFoundError:
+			pprint('Repository is not present, so there\'s no way you can fetch updates from.', 'ERROR')
+			sys.exit(1)
+
+		ret = 0
+		ret2 = 0
+		try:
+			ret = subprocess.run(['git', 'fetch'], cwd=self.repopath)
+			ret2 = subprocess.run(['git', 'pull', '--ff-only'], cwd=self.repopath)
+		except Exception as e:
+			pprint('Failed to update repository.', 'ERROR')
+			sys.exit(1)
+
+		if ret.returncode != 0 or ret2.returncode != 0:
+			pprint('Failed to update repository.', 'ERROR')
+			sys.exit(1)
+
+		pprint('Your repository is now update!', 'DONE')
+		sys.exit(0)
+
+	def push_repo(self, argv):
+		"""
+		{0} repo push: push commits to the upstream tree
+
+		Usage:
+			{0} repo push [--no-review]
+
+		Options:
+			--no-review	Just push, skip preview, skip confirming
+		
+		You have a chance to review before actually pushing commits.
+		"""
+		if 'help' in argv or '--help' in argv:
+			print(dedent(self.init_repo.__doc__.format(EXEC)))
+			sys.exit(0)
+		
+		pprint('Push commits to upstream')
+		try:
+			os.listdir(f'{self.repopath}/.git')
+		except FileNotFoundError:
+			pprint('Repository is not present, so there\'s no way you can push commits.', 'ERROR')
+			sys.exit(1)
+		
+		branch = subprocess.run(['git', 'branch', '--show-current'], cwd=self.repopath, capture_output=True).stdout.decode().rstrip()
+		pprint(f'Current branch is \033[1;36m{branch}\033[0m.')
+		commits = int(subprocess.run(['git', 'rev-list', '--count', f'origin/{branch}..HEAD'], 
+			cwd=self.repopath, capture_output=True).stdout)
+		if commits == 0:
+			pprint('You don\'t have any local commits.', 'ERROR')
+			sys.exit(1)
+
+		# review changes
+		if '--no-review' not in argv:
+			pprint(f'You have {commits} commit(s) to push.')
+			input('Hit Enter to view git log: ')
+			subprocess.run(['git', 'log'], cwd=self.repopath)
+			asked = False
+			ret = 'a'
+			while asked == False:
+				ret = input('Push these commits now? [Y/n] ')
+				if ret.lower() in ['y', '']:
+					asked = True
+				else:
+					pprint('Looks like you are not willing to push commits.')
+					sys.exit(0)
+
+		pprint(f'Pushing to upstream branch {branch}...')
+		ret = subprocess.run(['git', 'push', f'origin/{branch}'])
+		if ret.returncode != 0:
+			pprint('Failed to push. Review your changes and/or try again.', 'ERROR')
+			sys.exit(1)
+		
+		pprint('Your local commits are now pushed!', 'DONE')
+		sys.exit(0)
 
 	def dispatch(self, argv):
 		"""
@@ -246,7 +344,9 @@ class RepoMan():
 		argv is stripped version of sys.argv. 
 		"""
 		dispatch_map = {
-			'init': self.init_repo
+			'init': self.init_repo,
+			'update': self.update_repo,
+			'push': self.push_repo
 		}
 		if len(argv) <= 1:
 			loaded['help'].print_subusage([None, self.name])
